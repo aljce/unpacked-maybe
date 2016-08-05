@@ -24,8 +24,8 @@ import Control.Monad.Fix (MonadFix(..),fix)
 import Control.Monad.Zip (MonadZip(..))
 import Data.Semigroup (Semigroup(..))
 import Data.Monoid (Monoid(..))
-import Text.Read
-import Text.ParserCombinators.ReadPrec
+import Text.Read (parens,Lexeme(..),lexP,(+++),readPrec)
+import Text.ParserCombinators.ReadPrec (prec,step)
 
 import Data.Maybe.Internal.Unsafe (nothing,just,maybe,Maybe)
 
