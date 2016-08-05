@@ -15,11 +15,11 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Data.Maybe.Unsafe
+  exposed-modules:     Data.Maybe.Unpacked
+                     , Data.Maybe.Internal.Unsafe
   build-depends:       base >= 4.7 && < 5
                      , ghc-prim
                      , semigroups
-                     , transformers
   default-language:    Haskell2010
 
 executable unpacked-maybe
