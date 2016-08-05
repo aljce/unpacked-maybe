@@ -79,6 +79,7 @@ instance MonadFix UnsafeMaybe where
 
 instance MonadZip UnsafeMaybe where
   mzipWith = liftA2
+  {-# INLINE mzipWith #-}
 
 instance Alternative UnsafeMaybe where
   empty = nothing
@@ -95,24 +96,32 @@ instance MonadPlus UnsafeMaybe where
 -- TODO: Impliment all the functions
 instance Foldable UnsafeMaybe where
   foldMap f ma = maybe mempty f ma
+  {-# INLINE foldMap #-}
 
 instance Traversable UnsafeMaybe where
   sequenceA ma = maybe (pure nothing) (fmap just) ma
+  {-# INLINE sequenceA #-}
   traverse f ma = maybe (pure nothing) (fmap just . f) ma
+  {-# INLINE traverse #-}
 
 instance Semigroup a => Semigroup (UnsafeMaybe a) where
   ma <> mb = maybe mb (\a -> maybe ma (\b -> just (a <> b)) mb) ma
+  {-# INLINE (<>) #-}
 
 instance Semigroup a => Monoid (UnsafeMaybe a) where
   mempty = nothing
+  {-# INLINE mempty #-}
   mappend = (<>)
+  {-# INLINE mappend #-}
 
 instance Eq a => Eq (UnsafeMaybe a) where
   ma == mb = maybe (maybe True (const False) mb)
                    (\a -> maybe False (\b -> a == b) mb) ma
+  {-# INLINE (==) #-}
 
 instance Ord a => Ord (UnsafeMaybe a) where
   compare ma mb = maybe LT (\a -> maybe GT (compare a) mb) ma
+  {-# INLINE compare #-}
 
 appPrec :: Int
 appPrec = 10
@@ -133,9 +142,11 @@ instance Read a => Read (UnsafeMaybe a) where
 
 instance Eq1 UnsafeMaybe where
   eq1 = (==)
+  {-# INLINE eq1 #-}
 
 instance Ord1 UnsafeMaybe where
   compare1 = compare
+  {-# INLINE compare1 #-}
 
 instance Show1 UnsafeMaybe where
   showsPrec1 = showsPrec
