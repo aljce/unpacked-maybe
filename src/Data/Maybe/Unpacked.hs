@@ -13,10 +13,11 @@ module Data.Maybe.Unpacked (Maybe
                            ,maybeToList
                            ,catMaybes
                            ,mapMaybe
-                           ,toMaybe) where
+                           ,toOldMaybe) where
 
 import Prelude hiding (Maybe(..),maybe)
 import qualified Data.Maybe as Old
+import GHC.Base (build)
 
 import Control.Applicative (Alternative(..),liftA2)
 import Control.Monad (MonadPlus(..))
@@ -342,8 +343,7 @@ catMaybes = mapMaybe id
 -- in most cases:
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> parse :: String -> Maybe Int
--- >>> parse = fromOldMaybe . readMaybe
+-- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
 -- >>> mapMaybe parse ["1", "Foo", "3"]
 -- [1,3]
 -- >>> catMaybes $ map parse ["1", "Foo", "3"]
@@ -408,7 +408,7 @@ fromOldMaybe (Old.Nothing) = nothing
 
 toOldMaybe :: Maybe a -> Old.Maybe a
 toOldMaybe = maybe Old.Nothing Old.Just
-{-# INLINE toMaybe #-}
+{-# INLINE toOldMaybe #-}
 
 -- | The 'Just' pattern synonym mimics the functionality of the 'Just' constructor
 -- from 'Data.Maybe'. As with 'toOldMaybe' this is not an idiomatic use of this library,

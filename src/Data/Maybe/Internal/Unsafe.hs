@@ -36,7 +36,7 @@ nothingSurrogateSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# n
 
 -- | Thunk stands in for the value Nothing; we distinguish it by pointer
 thunk :: Any
-thunk = unsafeCoerce thunk
+thunk = unsafeCoerce nothingSurrogate
 {-# NOINLINE thunk #-}
 
 thunkSN :: StableName Any
