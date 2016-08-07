@@ -15,6 +15,15 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 import GHC.Prim (makeStableName#,StableName#,Any,eqStableName#,orI#)
 import GHC.Types (IO(..))
 
+import GHC.Prim (stableNameToInt#)
+import GHC.Base (Int(..))
+import Debug.Trace
+
+traceSN :: String -> StableName a -> StableName a
+traceSN name sn = trace str sn
+  where str = ("StableName: " ++ name ++ " has the hash: " ++
+               show (I# (stableNameToInt# (getStableName sn))))
+
 -- I had to roll my own StableName so I could access the 'StableName#'
 -- inside. I had to do this for two reasons:
 -- 1: You cant have top level expressions of kind #
@@ -28,7 +37,7 @@ nothingSurrogate _ = error "Data.Maybe.Unsafe.nothingSurrogate: evaluated"
 {-# NOINLINE nothingSurrogate #-}
 
 -- | This is a toplevel identifier for the pointer to nothingSurrogate
--- 
+--
 nothingSurrogateSN :: StableName (Int -> Int)
 nothingSurrogateSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# nothingSurrogate s1 of
   (# s2 , name #) -> (# s2 , StableName name #)
@@ -44,7 +53,7 @@ thunkSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# thunk s1 of
   (# s2 , name #) -> (# s2 , StableName name #)
 {-# INLINE thunkSN #-}
 
-newtype Maybe a = Maybe Any
+data Maybe a = Maybe {-# UNPACK #-} !Any
 
 nothing :: Maybe a
 nothing = Maybe thunk
