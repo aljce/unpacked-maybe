@@ -123,47 +123,261 @@ instance Read a => Read (Maybe a) where
 
 -- instance Read1 Maybe where
 
+-- | The 'isJust' function returns 'True' if its argument is of the
+-- form @Just _@.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> isJust (just 3)
+-- True
+--
+-- >>> isJust (just ())
+-- True
+--
+-- >>> isJust nothing
+-- False
+--
+-- Only the outer constructor is taken into consideration:
+--
+-- >>> isJust (just nothing)
+-- True
+--
+
 isJust :: Maybe a -> Bool
 isJust = maybe False (const True)
 {-# INLINE isJust #-}
+
+-- | The 'isNothing' function returns 'True' if its argument is 'nothing'.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> isNothing (just 3)
+-- False
+--
+-- >>> isNothing (just ())
+-- False
+--
+-- >>> isNothing nothing
+-- True
+--
+-- Only the outer constructor is taken into consideration:
+--
+-- >>> isNothing (just nothing)
+-- False
+--
 
 isNothing :: Maybe a -> Bool
 isNothing = maybe True (const False)
 {-# INLINE isNothing #-}
 
--- TODO: Investigate why prelude uses errorWithoutStackTrace
+-- | The 'fromJust' function extracts the element out of a 'just' and
+-- throws an error if its argument is 'nothing'.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> fromJust (just 1)
+-- 1
+--
+-- >>> 2 * (fromJust (just 10))
+-- 20
+--
+-- >>> 2 * (fromJust nothing)
+-- *** Exception: Data.Maybe.Unpacked.fromJust: Nothing
+--
+
 fromJust :: Maybe a -> a
 fromJust = fromMaybe (error "Data.Maybe.Unpacked.fromJust: Nothing")
 {-# INLINE fromJust #-}
 
+-- | The 'fromMaybe' function takes a default value and and 'Maybe'
+-- value.  If the 'Maybe' is 'nothing', it returns the default values;
+-- otherwise, it returns the value contained in the 'Maybe'.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> fromMaybe "" (just "Hello, World!")
+-- "Hello, World!"
+--
+-- >>> fromMaybe "" nothing
+-- ""
+--
+-- Read an integer from a string using 'readMaybe'. If we fail to
+-- parse an integer, we want to return @0@ by default:
+--
+-- >>> import Text.Read ( readMaybe )
+-- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> fromMaybe 0 (parse "5")
+-- 5
+-- >>> fromMaybe 0 (parse "")
+-- 0
+--
+
 fromMaybe :: a -> Maybe a -> a
-fromMaybe def ma = maybe def id ma
+fromMaybe def = maybe def id
 {-# INLINE fromMaybe #-}
+
+-- | The 'maybeToList' function returns an empty list when given
+-- 'nothing' or a singleton list when not given 'nothing'.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> maybeToList (just 7)
+-- [7]
+--
+-- >>> maybeToList nothing
+-- []
+--
+-- One can use 'maybeToList' to avoid pattern matching when combined
+-- with a function that (safely) works on lists:
+--
+-- >>> import Text.Read ( readMaybe )
+-- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> sum $ maybeToList (parse "3")
+-- 3
+-- >>> sum $ maybeToList (parse "")
+-- 0
+--
+-- This being said 'Maybe' is an instance of the 'Foldable' typeclass
+-- so the example above could also be written as:
+--
+-- >>> import Text.Read ( readMaybe )
+-- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> sum $ parse "3"
+-- 3
+-- >>> sum $ parse ""
+-- 0
+--
+
+maybeToList :: Maybe a -> [a]
+maybeToList = maybe [] (:[])
+{-# INLINE maybeToList #-}
+
+-- | The 'listToMaybe' function returns 'Nothing' on an empty list
+-- or @'Just' a@ where @a@ is the first element of the list.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> listToMaybe []
+-- Nothing
+--
+-- >>> listToMaybe [9]
+-- Just 9
+--
+-- >>> listToMaybe [1,2,3]
+-- Just 1
+--
+-- Composing 'maybeToList' with 'listToMaybe' should be the identity
+-- on singleton/empty lists:
+--
+-- >>> maybeToList $ listToMaybe [5]
+-- [5]
+-- >>> maybeToList $ listToMaybe []
+-- []
+--
+-- But not on lists with more than one element:
+--
+-- >>> maybeToList $ listToMaybe [1,2,3]
+-- [1]
+--
 
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = nothing
 listToMaybe (x:_) = just x
 {-# INLINE listToMaybe #-}
 
-maybeToList :: Maybe a -> [a]
-maybeToList = maybe [] (:[])
-{-# INLINE maybeToList #-}
+-- | The 'catMaybes' function takes a list of 'Maybe's and returns
+-- a list of all the 'just' values.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> catMaybes [just 1, nothing, just 3]
+-- [1,3]
+--
+-- When constructing a list of 'Maybe' values, 'catMaybes' can be used
+-- to return all of the \"success\" results (if the list is the result
+-- of a 'map', then 'mapMaybe' would be more appropriate):
+--
+-- >>> import Text.Read ( readMaybe )
+-- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> [ parse x | x <- ["1", "Foo", "3"] ]
+-- [Just 1,Nothing,Just 3]
+-- >>> catMaybes $ [ parse x | x <- ["1", "Foo", "3"] ]
+-- [1,3]
+--
 
 catMaybes :: [Maybe a] -> [a]
 catMaybes = mapMaybe id
 {-# INLINE catMaybes #-}
 
+-- | The 'mapMaybe' function is a version of 'map' which can throw
+-- out elements.  In particular, the functional argument returns
+-- something of type @'Maybe' b@.  If this is 'Nothing', no element
+-- is added on to the result list.  If it is @'Just' b@, then @b@ is
+-- included in the result list.
+--
+-- ==== __Examples__
+--
+-- Using @'mapMaybe' f x@ is a shortcut for @'catMaybes' $ 'map' f x@
+-- in most cases:
+--
+-- >>> import Text.Read ( readMaybe )
+-- >>> parse :: String -> Maybe Int
+-- >>> parse = fromOldMaybe . readMaybe
+-- >>> mapMaybe parse ["1", "Foo", "3"]
+-- [1,3]
+-- >>> catMaybes $ map parse ["1", "Foo", "3"]
+-- [1,3]
+--
+-- If we map the 'just' function, the entire list should be returned:
+--
+-- >>> mapMaybe just [1,2,3]
+-- [1,2,3]
+--
+
 mapMaybe :: (a -> Maybe b) -> [a] -> [b]
 mapMaybe _ [] = []
 mapMaybe f (a:as) = let bs = mapMaybe f as in maybe bs (:bs) (f a)
-{-# INLINE mapMaybe #-}
+{-# NOINLINE [1] mapMaybe #-}
 
-toMaybe :: Maybe a -> Old.Maybe a
-toMaybe = maybe Old.Nothing Old.Just
+{-# RULES
+"mapMaybe"     [~1] forall f xs. mapMaybe f xs
+                    = build (\c n -> foldr (mapMaybeFB c f) n xs)
+"mapMaybeList" [1]  forall f. foldr (mapMaybeFB (:) f) [] = mapMaybe f
+  #-}
+
+{-# NOINLINE [0] mapMaybeFB #-}
+mapMaybeFB :: (b -> r -> r) -> (a -> Maybe b) -> a -> r -> r
+mapMaybeFB cons f x next = maybe next (flip cons next) (f x)
+
+-- | The 'fromOldMaybe' function converts 'Data.Maybe' maybes to
+-- 'Data.Maybe.Unpacked' maybes. This function is good for using existing
+-- functions that return 'Data.Maybe' maybes.
+
+fromOldMaybe :: Old.Maybe a -> Maybe a
+fromOldMaybe (Old.Just x)  = just x
+fromOldMaybe (Old.Nothing) = nothing
+{-# INLINE fromOldMaybe #-}
+
+toOldMaybe :: Maybe a -> Old.Maybe a
+toOldMaybe = maybe Old.Nothing Old.Just
 {-# INLINE toMaybe #-}
 
 pattern Just :: a -> Maybe a
-pattern Just x <- (toMaybe -> Old.Just x)
+pattern Just x <- (toOldMaybe -> Old.Just x)
 
 pattern Nothing :: Maybe a
-pattern Nothing <- (toMaybe -> Old.Nothing)
+pattern Nothing <- (toOldMaybe -> Old.Nothing)
