@@ -15,13 +15,20 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 import GHC.Prim (makeStableName#,StableName#,Any,eqStableName#,orI#)
 import GHC.Types (IO(..))
 
+-- I had to roll my own StableName so I could access the 'StableName#'
+-- inside. I had to do this for two reasons:
+-- 1: You cant have top level expressions of kind #
+-- 2: The 'StableName' module from Base doesnt export Constructors
 data StableName a = StableName { getStableName :: StableName# a }
 
--- | Thunk requires the wildcard argument to trick runtime
+-- | 'nothingSurrogate' simulates a null pointer, it is required to be a closure
+-- to trick ghc's runtime
 nothingSurrogate :: Int -> Int
 nothingSurrogate _ = error "Data.Maybe.Unsafe.nothingSurrogate: evaluated"
 {-# NOINLINE nothingSurrogate #-}
 
+-- | This is a toplevel identifier for the pointer to nothingSurrogate
+-- 
 nothingSurrogateSN :: StableName (Int -> Int)
 nothingSurrogateSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# nothingSurrogate s1 of
   (# s2 , name #) -> (# s2 , StableName name #)

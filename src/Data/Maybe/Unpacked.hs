@@ -80,6 +80,13 @@ instance Semigroup a => Semigroup (Maybe a) where
   ma <> mb = maybe mb (\a -> maybe ma (\b -> just (a <> b)) mb) ma
   {-# INLINE (<>) #-}
 
+-- | Lift a semigroup into 'Maybe' forming a 'Monoid' according to
+-- <http://en.wikipedia.org/wiki/Monoid>: \"Any semigroup @S@ may be
+-- turned into a monoid simply by adjoining an element @e@ not in @S@
+-- and defining @e*e = e@ and @e*s = s = s*e@ for all @s ∈ S@.\" Unlike
+-- in "Data.Maybe" this library can depend on 'semigroups'. So this
+-- instance's superclass is less restrictive than the instance then the
+-- 'Data.Maybe' instance.
 instance Semigroup a => Monoid (Maybe a) where
   mempty = nothing
   {-# INLINE mempty #-}
@@ -366,18 +373,58 @@ mapMaybeFB cons f x next = maybe next (flip cons next) (f x)
 -- | The 'fromOldMaybe' function converts 'Data.Maybe' maybes to
 -- 'Data.Maybe.Unpacked' maybes. This function is good for using existing
 -- functions that return 'Data.Maybe' maybes.
+--
+-- ====  __Examples__
+--
+-- Basic usage:
+--
+-- >>> import Text.Read ( readMaybe )
+-- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> parse "3"
+-- Just 3
+-- >>> parse ""
+-- Nothing
+--
 
 fromOldMaybe :: Old.Maybe a -> Maybe a
 fromOldMaybe (Old.Just x)  = just x
 fromOldMaybe (Old.Nothing) = nothing
 {-# INLINE fromOldMaybe #-}
 
+-- | The 'toOldMaybe' function converts "Data.Maybe.Unpacked" maybes to
+-- 'Data.Maybe' maybes. This function is provided for testing and convenience
+-- but it is not an idiomatic use of this library. It ruins the speed and space gains from
+-- unpacking the 'Maybe'. I implore you to destruct the 'Maybe' with 'maybe' instead.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> import Data.List (unfoldr)
+-- >>> let ana n = if n == 5 then nothing else just (n,n)
+-- >>> unfoldr (toOldMaybe . ana) 1
+-- [1,2,3,4,5]
+--
+
 toOldMaybe :: Maybe a -> Old.Maybe a
 toOldMaybe = maybe Old.Nothing Old.Just
 {-# INLINE toMaybe #-}
 
+-- | The 'Just' pattern synonym mimics the functionality of the 'Just' constructor
+-- from 'Data.Maybe'. As with 'toOldMaybe' this is not an idiomatic use of this library,
+-- and it is just provided to ensure 'Data.Maybe.Unpack' is a drop in replacement for 'Data.Maybe'.
+-- The problem with 'Just' stems from its definition:
+-- > pattern Just x <- (toOldMaybe -> Old.Just x)
+-- Anytime you use the pattern synonym 'Just' you unpack the 'Maybe' maybe to a
+-- 'Data.Maybe' maybe. Instead of pattern matching on the maybe I highly suggest destructing the
+-- 'Maybe' with the functions 'maybe' or 'fromMaybe'.
+
 pattern Just :: a -> Maybe a
 pattern Just x <- (toOldMaybe -> Old.Just x)
+
+-- | The 'Nothing' pattern synonym mimics the functionality of the 'Nothing' constructor
+-- from 'Data.Maybe'. As with the function 'toOldMaybe' and the pattern synonym 'Just', 'Nothing'
+-- is not an idiomatic use of this library. See the docs for 'Just' for an explaintion.
 
 pattern Nothing :: Maybe a
 pattern Nothing <- (toOldMaybe -> Old.Nothing)
