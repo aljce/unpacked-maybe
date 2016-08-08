@@ -401,8 +401,8 @@ fromOldMaybe (Old.Nothing) = nothing
 -- Basic usage:
 --
 -- >>> import Data.List (unfoldr)
--- >>> let ana n = if n == 5 then nothing else just (n,n)
--- >>> unfoldr (toOldMaybe . ana) 1
+-- >>> let ana n = if n == 5 then nothing else just (n+1,n+1)
+-- >>> unfoldr (toOldMaybe . ana) 0
 -- [1,2,3,4,5]
 --
 
