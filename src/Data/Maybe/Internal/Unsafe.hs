@@ -53,7 +53,7 @@ thunkSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# thunk s1 of
   (# s2 , name #) -> (# s2 , StableName name #)
 {-# INLINE thunkSN #-}
 
-data Maybe a = Maybe !Any
+newtype Maybe a = Maybe Any
 
 nothing :: Maybe a
 nothing = Maybe thunk
