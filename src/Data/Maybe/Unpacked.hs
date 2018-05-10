@@ -1,19 +1,6 @@
 {-# LANGUAGE PatternSynonyms, ViewPatterns #-}
-module Data.Maybe.Unpacked (Maybe
-                           ,just
-                           ,pattern Just
-                           ,nothing
-                           ,pattern Nothing
-                           ,maybe
-                           ,isJust
-                           ,isNothing
-                           ,fromJust
-                           ,fromMaybe
-                           ,listToMaybe
-                           ,maybeToList
-                           ,catMaybes
-                           ,mapMaybe
-                           ,toOldMaybe) where
+
+module Data.Maybe.Unpacked where
 
 import Prelude hiding (Maybe(..),maybe)
 import qualified Data.Maybe as Old
@@ -66,9 +53,6 @@ instance MonadPlus Maybe where
   mplus mx my = maybe my just mx
   {-# INLINE mplus #-}
 
---maybe :: b -> (a -> b) -> Maybe a -> b
-
--- TODO: Impliment all the functions
 instance Foldable Maybe where
   foldMap f ma = maybe mempty f ma
   {-# INLINE foldMap #-}
