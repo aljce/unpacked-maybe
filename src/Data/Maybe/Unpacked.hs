@@ -66,10 +66,20 @@ instance MonadPlus Maybe where
   mplus mx my = maybe my just mx
   {-# INLINE mplus #-}
 
+--maybe :: b -> (a -> b) -> Maybe a -> b
+
 -- TODO: Impliment all the functions
 instance Foldable Maybe where
   foldMap f ma = maybe mempty f ma
   {-# INLINE foldMap #-}
+  foldr f z ma = maybe z ((flip f) z) ma 
+  {-# INLINE foldr #-}
+  foldl f z ma = maybe z (f z) ma
+  {-# INLINE foldl #-} 
+  length  = maybe 0 (const 1) 
+  null    = isNothing 
+  product = maybe 0 id 
+  sum     = maybe 0 id
 
 instance Traversable Maybe where
   sequenceA ma = maybe (pure nothing) (fmap just) ma
