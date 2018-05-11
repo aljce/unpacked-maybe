@@ -1,72 +1,48 @@
-{-# LANGUAGE UnboxedTuples, MagicHash, BangPatterns #-}
-module Data.Maybe.Internal.Unsafe (nothingSurrogate
-                                  ,nothingSurrogateSN
-                                  ,thunk
-                                  ,thunkSN
-                                  ,Maybe(..)
-                                  ,nothing
-                                  ,just
-                                  ,maybe) where
+{-# LANGUAGE BangPatterns  #-}
+{-# LANGUAGE MagicHash     #-}
 
-import Prelude hiding (Maybe(..),maybe)
+module Data.Maybe.Internal.Unsafe
+  ( Maybe(..)
+  , nothing
+  , just
+  , maybe
+  , toMaybe
+  ) where
 
+import GHC.Base hiding (Maybe(..))
+import GHC.Prim
+import GHC.Types
 import Unsafe.Coerce (unsafeCoerce)
-import System.IO.Unsafe (unsafeDupablePerformIO)
-import GHC.Prim (makeStableName#,StableName#,Any,eqStableName#,orI#)
-import GHC.Types (IO(..))
 
-import GHC.Prim (stableNameToInt#)
-import GHC.Base (Int(..))
-import Debug.Trace
-
-traceSN :: String -> StableName a -> StableName a
-traceSN name sn = trace str sn
-  where str = ("StableName: " ++ name ++ " has the hash: " ++
-               show (I# (stableNameToInt# (getStableName sn))))
-
--- I had to roll my own StableName so I could access the 'StableName#'
--- inside. I had to do this for two reasons:
--- 1: You cant have top level expressions of kind #
--- 2: The 'StableName' module from Base doesnt export Constructors
-data StableName a = StableName { getStableName :: StableName# a }
-
--- | 'nothingSurrogate' simulates a null pointer, it is required to be a closure
--- to trick ghc's runtime
-nothingSurrogate :: Int -> Int
-nothingSurrogate _ = error "Data.Maybe.Unsafe.nothingSurrogate: evaluated"
-{-# NOINLINE nothingSurrogate #-}
-
--- | This is a toplevel identifier for the pointer to nothingSurrogate
---
-nothingSurrogateSN :: StableName (Int -> Int)
-nothingSurrogateSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# nothingSurrogate s1 of
-  (# s2 , name #) -> (# s2 , StableName name #)
-{-# INLINE nothingSurrogateSN #-}
-
--- | Thunk stands in for the value Nothing; we distinguish it by pointer
-thunk :: Any
-thunk = unsafeCoerce nothingSurrogate
-{-# NOINLINE thunk #-}
-
-thunkSN :: StableName Any
-thunkSN = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# thunk s1 of
-  (# s2 , name #) -> (# s2 , StableName name #)
-{-# INLINE thunkSN #-}
+import Prelude () -- only import instances
 
 newtype Maybe a = Maybe Any
 
 nothing :: Maybe a
 nothing = Maybe thunk
-{-# INLINE nothing #-}
+{-# inline nothing #-}
 
 just :: a -> Maybe a
 just a = Maybe (unsafeCoerce a)
-{-# INLINE just #-}
+{-# inline just #-}
+
+nothingSurrogate :: Any
+nothingSurrogate = error "Data.Maybe.Unpacked.nothingSurrogate evaluated"
+{-# noinline nothingSurrogate #-}
+
+-- | Thunk stands in for the value Nothing; It is distinguished by its pointer
+thunk :: Any
+thunk = unsafeCoerce nothingSurrogate
+{-# noinline thunk #-}
 
 maybe :: b -> (a -> b) -> Maybe a -> b
-maybe def transform (Maybe !a) = unsafeDupablePerformIO $ IO $ \s1 -> case makeStableName# a s1 of
-  (# s2, named #) -> case eqStableName# (getStableName thunkSN) named `orI#`
-                          eqStableName# (getStableName nothingSurrogateSN) named of
-    0# -> (# s2 , transform (unsafeCoerce a) #)
-    _  -> (# s2 , def #)
-{-# INLINE maybe #-}
+maybe def f !(Maybe a) = case reallyUnsafePtrEquality# a nothingSurrogate of
+  0# -> f (unsafeCoerce a)
+  _  -> def
+{-# inline maybe #-}
+
+toMaybe :: a -> Maybe a
+toMaybe x = case reallyUnsafePtrEquality# x (unsafeCoerce nothingSurrogate) of
+  0# -> just x
+  _  -> nothing
+{-# inline toMaybe #-}
