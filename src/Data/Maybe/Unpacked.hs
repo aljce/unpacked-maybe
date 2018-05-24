@@ -137,13 +137,15 @@ data Maybe a = Maybe (# (# #) | a #)
 --   from 'Data.Maybe'. This is just provided to ensure 'Data.Maybe.Unpacked' is a drop in replacement for 'Data.Maybe'.
 --
 pattern Just :: a -> Maybe a
-pattern Just x <- (toBaseMaybe -> BaseMaybe.Just x)
+pattern Just a = Maybe (# | a #)
 
 -- | The 'Nothing' pattern synonym mimics the functionality of the 'Nothing' constructor
 --   from 'Data.Maybe'. This is just provided to ensure 'Data.Maybe.Unpacked' is a drop-in replacement for 'Data.Maybe'.
 -- 
 pattern Nothing :: Maybe a
-pattern Nothing <- (toBaseMaybe -> BaseMaybe.Nothing)
+pattern Nothing = Maybe (# (# #) | #)
+
+{-# COMPLETE Just, Nothing #-}
 
 nothing :: Maybe a
 nothing = Maybe (# (# #) | #)
@@ -530,7 +532,7 @@ instance Eq1 Maybe where
     liftEq _  (Just _) Nothing  = False
     liftEq eq (Just x) (Just y) = eq x y
     -- this is a redundant pattern match, but GHC can't see that
-    liftEq _  _        _        = False
+    --liftEq _  _        _        = False
 
 instance Ord1 Maybe where
     liftCompare _    Nothing  Nothing  = EQ
@@ -538,7 +540,7 @@ instance Ord1 Maybe where
     liftCompare _    (Just _) Nothing  = GT
     liftCompare comp (Just x) (Just y) = comp x y
     -- this is a redundant pattern match, but GHC can't see that 
-    liftCompare _    _        _        = EQ
+    --liftCompare _    _        _        = EQ
 
 instance Read1 Maybe where
     liftReadPrec rp _ =
@@ -553,4 +555,4 @@ instance Show1 Maybe where
     liftShowsPrec _  _ _ Nothing  = showString "Nothing"
     liftShowsPrec sp _ d (Just x) = showsUnaryWith sp "Just" d x
     -- this is a redundant pattern match, but GHC can't see that
-    liftShowsPrec _  _ _ _        = showString "Nothing" 
+    --liftShowsPrec _  _ _ _        = showString "Nothing" 
