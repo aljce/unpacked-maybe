@@ -37,12 +37,10 @@
 --------------------------------------------------------------------------------
 
 {-# LANGUAGE BangPatterns       #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms    #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UnboxedSums        #-}
 {-# LANGUAGE UnboxedTuples      #-}
-{-# LANGUAGE ViewPatterns       #-}
 
 --------------------------------------------------------------------------------
 
