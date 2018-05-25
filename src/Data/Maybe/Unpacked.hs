@@ -1,129 +1,167 @@
-{-# LANGUAGE PatternSynonyms, ViewPatterns #-}
+--------------------------------------------------------------------------------
 
-module Data.Maybe.Unpacked where
+-- Copyright © 2016 Kyle McKean
+-- Copyright © 2018 Daniel Cartwright
 
-import Prelude hiding (Maybe(..),maybe)
-import qualified Data.Maybe as Old
-import GHC.Base (build)
+-- Redistribution and use in source and binary forms, with or without
+-- modification, are permitted provided that the following conditions are met:
+-- 
+--     * Redistributions of source code must retain the above copyright
+--       notice, this list of conditions and the following disclaimer.
+-- 
+--     * Redistributions in binary form must reproduce the above
+--       copyright notice, this list of conditions and the following
+--       disclaimer in the documentation and/or other materials provided
+--       with the distribution.
+-- 
+--     * Neither the name of Kyle McKean nor the names of other
+--       contributors may be used to endorse or promote products derived
+--       from this software without specific prior written permission.
+-- 
+-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+-- "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+-- LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+-- A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+-- OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+-- SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+-- LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+-- DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+-- THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+-- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+-- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import Control.Applicative (Alternative(..),liftA2)
-import Control.Monad (MonadPlus(..))
-import Control.Monad.Fix (MonadFix(..),fix)
-import Control.Monad.Zip (MonadZip(..))
-import Data.Semigroup (Semigroup(..))
-import Data.Monoid (Monoid(..))
-import Text.Read (parens,Lexeme(..),lexP,(+++),readPrec)
-import Text.ParserCombinators.ReadPrec (prec,step)
+--------------------------------------------------------------------------------
 
-import Data.Maybe.Internal.Unsafe (nothing,just,maybe,Maybe)
+{-# OPTIONS_GHC -Wall #-}
 
-instance Functor Maybe where
-  fmap f = maybe nothing (just . f)
-  {-# INLINE fmap #-}
+--------------------------------------------------------------------------------
 
-instance Applicative Maybe where
-  pure = just
-  {-# INLINE pure #-}
-  mf <*> mx = maybe nothing (\f -> maybe nothing (just . f) mx) mf
-  {-# INLINE (<*>) #-}
+{-# LANGUAGE BangPatterns       #-}
+{-# LANGUAGE PatternSynonyms    #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UnboxedSums        #-}
+{-# LANGUAGE UnboxedTuples      #-}
 
-instance Monad Maybe where
-  return = just
-  {-# INLINE return #-}
-  mx >>= f = maybe nothing f mx
-  {-# INLINE (>>=) #-}
+--------------------------------------------------------------------------------
 
--- This instance is too strict mfix (\x -> nothing) diverges
--- instance MonadFix Maybe where
---   mfix f = let a = f (fromJust a) in a
+{-| This module is intended to be a drop-in replacement
+    for 'Data.Maybe'. To shave off pointer chasing, it
+    uses @'-XUnboxedSums'@ to represent the @'Maybe'@ type
+    as two machine words that are contiguous in memory, without
+    loss of expressiveness that 'Data.Maybe' provides.
 
-instance MonadZip Maybe where
-  mzipWith = liftA2
-  {-# INLINE mzipWith #-}
+    This library provides pattern synonyms @'Just'@ and @'Nothing'@
+    that allow users to pattern match on an Unpacked Maybe
+    in a familiar way.
 
-instance Alternative Maybe where
-  empty = nothing
-  {-# INLINE empty #-}
-  mx <|> my = maybe my just mx
-  {-# INLINE (<|>) #-}
+    Functions are also provided for converting an Unpacked Maybe
+    to the base library's Maybe.
+-}
 
-instance MonadPlus Maybe where
-  mzero = nothing
-  {-# INLINE mzero #-}
-  mplus mx my = maybe my just mx
-  {-# INLINE mplus #-}
+module Data.Maybe.Unpacked
+  ( Maybe(Maybe, Just, Nothing)
+  , maybe
+  , isJust
+  , isNothing
+  , fromJust
+  , fromMaybe
+  , listToMaybe
+  , maybeToList
+  , catMaybes
+  , mapMaybe
+  , fromBaseMaybe
+  , toBaseMaybe
+  ) where
 
-instance Foldable Maybe where
-  foldMap f ma = maybe mempty f ma
-  {-# INLINE foldMap #-}
-  foldr f z ma = maybe z ((flip f) z) ma 
-  {-# INLINE foldr #-}
-  foldl f z ma = maybe z (f z) ma
-  {-# INLINE foldl #-} 
-  length  = maybe 0 (const 1) 
-  null    = isNothing 
-  product = maybe 0 id 
-  sum     = maybe 0 id
+--------------------------------------------------------------------------------
 
-instance Traversable Maybe where
-  sequenceA ma = maybe (pure nothing) (fmap just) ma
-  {-# INLINE sequenceA #-}
-  traverse f ma = maybe (pure nothing) (fmap just . f) ma
-  {-# INLINE traverse #-}
+import Prelude
+  ()
 
-instance Semigroup a => Semigroup (Maybe a) where
-  ma <> mb = maybe mb (\a -> maybe ma (\b -> just (a <> b)) mb) ma
-  {-# INLINE (<>) #-}
+import           Control.Applicative (Alternative(empty, (<|>)), Applicative(liftA2, pure, (<*>), (*>)))
 
--- | Lift a semigroup into 'Maybe' forming a 'Monoid' according to
--- <http://en.wikipedia.org/wiki/Monoid>: \"Any semigroup @S@ may be
--- turned into a monoid simply by adjoining an element @e@ not in @S@
--- and defining @e*e = e@ and @e*s = s = s*e@ for all @s ∈ S@.\" Unlike
--- in "Data.Maybe" this library can depend on 'semigroups'. So this
--- instance's superclass is less restrictive than the instance then the
--- 'Data.Maybe' instance.
-instance Semigroup a => Monoid (Maybe a) where
-  mempty = nothing
-  {-# INLINE mempty #-}
-  mappend = (<>)
-  {-# INLINE mappend #-}
+import           Control.Monad       (Monad(return, (>>=)), MonadPlus(mzero, mplus))
+import           Control.Monad.Fail  (MonadFail(fail))
+import           Control.Monad.Fix   (MonadFix(mfix))
+import           Control.Monad.Zip   (MonadZip(mzipWith))
 
-instance Eq a => Eq (Maybe a) where
-  ma == mb = maybe (maybe True (const False) mb)
-                   (\a -> maybe False (\b -> a == b) mb) ma
-  {-# INLINE (==) #-}
+import           Data.Data
+  ( Constr
+  , Data(dataTypeOf, gunfold, toConstr) 
+  , DataType
+  , Fixity(Prefix)
+  , mkConstr
+  , mkDataType
+  )
+import           Data.Eq             (Eq((==)))
+import           Data.Foldable
+  (Foldable(foldMap, foldr, foldl, length, null, product, sum))
 
-instance Ord a => Ord (Maybe a) where
-  compare ma mb = maybe LT (\a -> maybe GT (compare a) mb) ma
-  {-# INLINE compare #-}
+import           Data.Function       (const, flip, id, (.), ($))
+import           Data.Functor        (Functor(fmap))
+import           Data.Functor.Classes
+  ( Eq1(liftEq)
+  , Ord1(liftCompare)
+  , Read1(liftReadPrec, liftReadListPrec, liftReadList)
+  , Show1(liftShowsPrec)
+  , readData
+  , readUnaryWith
+  , liftReadListPrecDefault
+  , liftReadListDefault
+  , showsUnaryWith
+  )
 
-appPrec :: Int
-appPrec = 10
+import qualified Data.Maybe as BaseMaybe
+import           Data.Monoid         (Monoid(mempty,mappend))
+import           Data.Ord            (Ord(compare, (>)), Ordering(EQ, GT, LT))
+import           Data.Semigroup      (Semigroup((<>)))
+import           Data.Traversable    (Traversable(sequenceA, traverse))
 
-instance Show a => Show (Maybe a) where
-  showsPrec p ma = maybe (showString "Nothing")
-                         (\a -> showParen (p > appPrec) (showString "Just " . (showsPrec (appPrec + 1) a))) ma
+import           GHC.Base            (Bool(False,True), Int, build)
+import           GHC.Err             (error, errorWithoutStackTrace)
+import           GHC.Num             ( (+) )
+import           GHC.Read            (Read(readPrec), expectP)
+import           GHC.Show            (Show(showsPrec), showString, showParen)
 
-instance Read a => Read (Maybe a) where
-  readPrec = parens $ nothingP +++ justP
-    where nothingP = prec appPrec $ do
-            Ident "Nothing" <- lexP
-            pure nothing
-          justP = prec appPrec $ do
-            Ident "Just" <- lexP
-            a <- step readPrec
-            return (just a)
+import           Text.Read           (parens, Lexeme(Ident), lexP, (+++))
+import           Text.ParserCombinators.ReadPrec
+  (prec, step)
 
--- When stackage gets transformers 5 or ghc 8
--- instance Eq1 Maybe where
---   {-# INLINE liftEq #-}
+--------------------------------------------------------------------------------
 
--- instance Ord1 Maybe where
---   {-# INLINE liftCompare #-}
+data Maybe a = Maybe (# (# #) | a #)
 
--- instance Show1 Maybe where
+-- | The 'Just' pattern synonym mimics the functionality of the 'Just' constructor
+--   from 'Data.Maybe'. This is just provided to ensure 'Data.Maybe.Unpacked' is a drop in replacement for 'Data.Maybe'.
+--
+pattern Just :: a -> Maybe a
+pattern Just a = Maybe (# | a #)
 
--- instance Read1 Maybe where
+-- | The 'Nothing' pattern synonym mimics the functionality of the 'Nothing' constructor
+--   from 'Data.Maybe'. This is just provided to ensure 'Data.Maybe.Unpacked' is a drop-in replacement for 'Data.Maybe'.
+-- 
+pattern Nothing :: Maybe a
+pattern Nothing = Maybe (# (# #) | #)
+
+{-# COMPLETE Just, Nothing #-}
+
+nothing :: Maybe a
+nothing = Maybe (# (# #) | #)
+{-# INLINE nothing #-}
+
+just :: a -> Maybe a
+just x = Maybe (# | x #)
+{-# INLINE just #-}
+
+maybe :: b -> (a -> b) -> Maybe a -> b
+maybe def f (Maybe x) = case x of
+  (# (# #) |   #) -> def
+  (#       | a #) -> f a
+{-# INLINE maybe #-}
+
+isNothing :: Maybe a -> Bool
+isNothing = maybe True (const False)
+{-# INLINE isNothing #-}
 
 -- | The 'isJust' function returns 'True' if its argument is of the
 -- form @Just _@.
@@ -146,35 +184,9 @@ instance Read a => Read (Maybe a) where
 -- >>> isJust (just nothing)
 -- True
 --
-
 isJust :: Maybe a -> Bool
 isJust = maybe False (const True)
 {-# INLINE isJust #-}
-
--- | The 'isNothing' function returns 'True' if its argument is 'nothing'.
---
--- ==== __Examples__
---
--- Basic usage:
---
--- >>> isNothing (just 3)
--- False
---
--- >>> isNothing (just ())
--- False
---
--- >>> isNothing nothing
--- True
---
--- Only the outer constructor is taken into consideration:
---
--- >>> isNothing (just nothing)
--- False
---
-
-isNothing :: Maybe a -> Bool
-isNothing = maybe True (const False)
-{-# INLINE isNothing #-}
 
 -- | The 'fromJust' function extracts the element out of a 'just' and
 -- throws an error if its argument is 'nothing'.
@@ -192,7 +204,6 @@ isNothing = maybe True (const False)
 -- >>> 2 * (fromJust nothing)
 -- *** Exception: Data.Maybe.Unpacked.fromJust: Nothing
 --
-
 fromJust :: Maybe a -> a
 fromJust = fromMaybe (error "Data.Maybe.Unpacked.fromJust: Nothing")
 {-# INLINE fromJust #-}
@@ -215,13 +226,12 @@ fromJust = fromMaybe (error "Data.Maybe.Unpacked.fromJust: Nothing")
 -- parse an integer, we want to return @0@ by default:
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> let parse = fromBaseMaybe . readMaybe :: String -> Maybe Int
 -- >>> fromMaybe 0 (parse "5")
 -- 5
 -- >>> fromMaybe 0 (parse "")
 -- 0
 --
-
 fromMaybe :: a -> Maybe a -> a
 fromMaybe def = maybe def id
 {-# INLINE fromMaybe #-}
@@ -243,7 +253,7 @@ fromMaybe def = maybe def id
 -- with a function that (safely) works on lists:
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> let parse = fromBaseMaybe . readMaybe :: String -> Maybe Int
 -- >>> sum $ maybeToList (parse "3")
 -- 3
 -- >>> sum $ maybeToList (parse "")
@@ -253,15 +263,14 @@ fromMaybe def = maybe def id
 -- so the example above could also be written as:
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> let parse = fromBaseMaybe . readMaybe :: String -> Maybe Int
 -- >>> sum $ parse "3"
 -- 3
 -- >>> sum $ parse ""
 -- 0
 --
-
 maybeToList :: Maybe a -> [a]
-maybeToList = maybe [] (:[])
+maybeToList = maybe [] (: [])
 {-# INLINE maybeToList #-}
 
 -- | The 'listToMaybe' function returns 'Nothing' on an empty list
@@ -293,11 +302,9 @@ maybeToList = maybe [] (:[])
 -- >>> maybeToList $ listToMaybe [1,2,3]
 -- [1]
 --
-
 listToMaybe :: [a] -> Maybe a
 listToMaybe []    = nothing
 listToMaybe (x:_) = just x
-{-# INLINE listToMaybe #-}
 
 -- | The 'catMaybes' function takes a list of 'Maybe's and returns
 -- a list of all the 'just' values.
@@ -314,13 +321,12 @@ listToMaybe (x:_) = just x
 -- of a 'map', then 'mapMaybe' would be more appropriate):
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> let parse = fromBaseMaybe . readMaybe :: String -> Maybe Int
 -- >>> [ parse x | x <- ["1", "Foo", "3"] ]
 -- [Just 1,Nothing,Just 3]
 -- >>> catMaybes $ [ parse x | x <- ["1", "Foo", "3"] ]
 -- [1,3]
 --
-
 catMaybes :: [Maybe a] -> [a]
 catMaybes = mapMaybe id
 {-# INLINE catMaybes #-}
@@ -337,7 +343,7 @@ catMaybes = mapMaybe id
 -- in most cases:
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> let parse = fromBaseMaybe . readMaybe :: String -> Maybe Int
 -- >>> mapMaybe parse ["1", "Foo", "3"]
 -- [1,3]
 -- >>> catMaybes $ map parse ["1", "Foo", "3"]
@@ -348,10 +354,9 @@ catMaybes = mapMaybe id
 -- >>> mapMaybe just [1,2,3]
 -- [1,2,3]
 --
-
 mapMaybe :: (a -> Maybe b) -> [a] -> [b]
 mapMaybe _ [] = []
-mapMaybe f (a:as) = let bs = mapMaybe f as in maybe bs (:bs) (f a)
+mapMaybe f !(a:as) = let bs = mapMaybe f as in maybe bs (: bs) (f a)
 {-# NOINLINE [1] mapMaybe #-}
 
 {-# RULES
@@ -364,7 +369,7 @@ mapMaybe f (a:as) = let bs = mapMaybe f as in maybe bs (:bs) (f a)
 mapMaybeFB :: (b -> r -> r) -> (a -> Maybe b) -> a -> r -> r
 mapMaybeFB cons f x next = maybe next (flip cons next) (f x)
 
--- | The 'fromOldMaybe' function converts 'Data.Maybe' maybes to
+-- | The 'fromBaseMaybe' function converts 'Data.Maybe' maybes to
 -- 'Data.Maybe.Unpacked' maybes. This function is good for using existing
 -- functions that return 'Data.Maybe' maybes.
 --
@@ -373,19 +378,18 @@ mapMaybeFB cons f x next = maybe next (flip cons next) (f x)
 -- Basic usage:
 --
 -- >>> import Text.Read ( readMaybe )
--- >>> let parse = fromOldMaybe . readMaybe :: String -> Maybe Int
+-- >>> let parse = fromBaseMaybe . readMaybe :: String -> Maybe Int
 -- >>> parse "3"
 -- Just 3
 -- >>> parse ""
 -- Nothing
 --
+fromBaseMaybe :: BaseMaybe.Maybe a -> Maybe a
+fromBaseMaybe (BaseMaybe.Just x) = just x
+fromBaseMaybe _                  = nothing
+{-# INLINE fromBaseMaybe #-}
 
-fromOldMaybe :: Old.Maybe a -> Maybe a
-fromOldMaybe (Old.Just x)  = just x
-fromOldMaybe (Old.Nothing) = nothing
-{-# INLINE fromOldMaybe #-}
-
--- | The 'toOldMaybe' function converts "Data.Maybe.Unpacked" maybes to
+-- | The 'toBaseMaybe' function converts "Data.Maybe.Unpacked" maybes to
 -- 'Data.Maybe' maybes. This function is provided for testing and convenience
 -- but it is not an idiomatic use of this library. It ruins the speed and space gains from
 -- unpacking the 'Maybe'. I implore you to destruct the 'Maybe' with 'maybe' instead.
@@ -396,29 +400,157 @@ fromOldMaybe (Old.Nothing) = nothing
 --
 -- >>> import Data.List (unfoldr)
 -- >>> let ana n = if n == 5 then nothing else just (n+1,n+1)
--- >>> unfoldr (toOldMaybe . ana) 0
+-- >>> unfoldr (toBaseMaybe . ana) 0
 -- [1,2,3,4,5]
 --
+toBaseMaybe :: Maybe a -> BaseMaybe.Maybe a
+toBaseMaybe = maybe BaseMaybe.Nothing BaseMaybe.Just
+{-# INLINE toBaseMaybe #-}
 
-toOldMaybe :: Maybe a -> Old.Maybe a
-toOldMaybe = maybe Old.Nothing Old.Just
-{-# INLINE toOldMaybe #-}
+--------------------------------------------------------------------------------
 
--- | The 'Just' pattern synonym mimics the functionality of the 'Just' constructor
--- from 'Data.Maybe'. As with 'toOldMaybe' this is not an idiomatic use of this library,
--- and it is just provided to ensure 'Data.Maybe.Unpack' is a drop in replacement for 'Data.Maybe'.
--- The problem with 'Just' stems from its definition:
--- > pattern Just x <- (toOldMaybe -> Old.Just x)
--- Anytime you use the pattern synonym 'Just' you unpack the 'Maybe' maybe to a
--- 'Data.Maybe' maybe. Instead of pattern matching on the maybe I highly suggest destructing the
--- 'Maybe' with the functions 'maybe' or 'fromMaybe'.
+-- Below here lie only instances, and helpers for instances
 
-pattern Just :: a -> Maybe a
-pattern Just x <- (toOldMaybe -> Old.Just x)
+maybeDataType :: DataType
+maybeDataType = mkDataType "Data.Maybe.Unpacked.Maybe" [nothingConstr, justConstr]
 
--- | The 'Nothing' pattern synonym mimics the functionality of the 'Nothing' constructor
--- from 'Data.Maybe'. As with the function 'toOldMaybe' and the pattern synonym 'Just', 'Nothing'
--- is not an idiomatic use of this library. See the docs for 'Just' for an explaintion.
+nothingConstr :: Constr
+nothingConstr = mkConstr maybeDataType "Nothing" [] Prefix
 
-pattern Nothing :: Maybe a
-pattern Nothing <- (toOldMaybe -> Old.Nothing)
+justConstr :: Constr
+justConstr = mkConstr maybeDataType "Just" [] Prefix
+
+instance Data a => Data (Maybe a) where
+  toConstr = maybe nothingConstr (const justConstr)
+  gunfold _ _ = errorWithoutStackTrace "Data.Data.gunfold(Data.Maybe.Unpacked.Maybe)"
+  dataTypeOf _ = maybeDataType
+
+instance Functor Maybe where
+  fmap f = maybe nothing (just . f)
+  {-# INLINE fmap #-}
+
+instance Applicative Maybe where
+  pure = just
+  {-# INLINE pure #-}
+  mf <*> mx = maybe nothing (\f -> fmap f mx) mf
+  {-# INLINE (<*>) #-}
+
+instance Monad Maybe where
+  return = just
+  {-# INLINE return #-}
+  mx >>= f = maybe nothing f mx
+  {-# INLINE (>>=) #-}
+
+instance MonadFail Maybe where
+  fail _ = nothing
+  {-# INLINE fail #-}
+
+instance MonadFix Maybe where
+  mfix f = let a = f (fromJust a) in a
+  {-# INLINE mfix #-}
+
+instance MonadZip Maybe where
+  mzipWith = liftA2
+  {-# INLINE mzipWith #-}
+
+instance Alternative Maybe where
+  empty = nothing
+  {-# INLINE empty #-}
+  mx <|> my = maybe my just mx
+  {-# INLINE (<|>) #-}
+
+instance MonadPlus Maybe where
+  mzero = nothing
+  {-# INLINE mzero #-}
+  mplus mx my = maybe my just mx
+  {-# INLINE mplus #-}
+
+instance Foldable Maybe where
+  foldMap f ma = maybe mempty f ma
+  {-# INLINE foldMap #-}
+  foldr f z ma = maybe z ((flip f) z) ma 
+  {-# INLINE foldr #-}
+  foldl f z ma = maybe z (f z) ma
+  {-# INLINE foldl #-} 
+  length  = maybe 0 (const 1)
+  {-# INLINE length #-}
+  null    = isNothing
+  {-# INLINE null #-}
+  product = maybe 0 id
+  {-# INLINE product #-}
+  sum     = maybe 0 id
+  {-# INLINE sum #-}
+
+instance Traversable Maybe where
+  sequenceA ma = maybe (pure nothing) (fmap just) ma
+  {-# INLINE sequenceA #-}
+  traverse f ma = maybe (pure nothing) (fmap just . f) ma
+  {-# INLINE traverse #-}
+
+instance Semigroup a => Semigroup (Maybe a) where
+  ma <> mb = maybe mb (\a -> maybe ma (\b -> just (a <> b)) mb) ma
+  {-# INLINE (<>) #-}
+
+instance Semigroup a => Monoid (Maybe a) where
+  mempty = nothing
+  {-# INLINE mempty #-}
+  mappend = (<>)
+  {-# INLINE mappend #-}
+
+instance Eq a => Eq (Maybe a) where
+  ma == mb = maybe (isNothing mb)
+                   (\a -> maybe False (\b -> a == b) mb) ma
+  {-# INLINE (==) #-}
+
+instance Ord a => Ord (Maybe a) where
+  compare ma mb = maybe LT (\a -> maybe GT (compare a) mb) ma
+  {-# INLINE compare #-}
+
+appPrec :: Int
+appPrec = 10
+{-# INLINE appPrec #-}
+
+instance Show a => Show (Maybe a) where
+  showsPrec p ma = maybe (showString "Nothing")
+                         (\a -> showParen (p > appPrec) (showString "Just " . (showsPrec (appPrec + 1) a))) ma
+
+instance Read a => Read (Maybe a) where
+  readPrec = parens $ nothingP +++ justP
+    where nothingP = prec appPrec $ do
+            Ident "Nothing" <- lexP
+            return nothing
+          justP = prec appPrec $ do
+            Ident "Just" <- lexP
+            a <- step readPrec
+            return (just a)
+
+instance Eq1 Maybe where
+    liftEq _  Nothing  Nothing  = True
+    liftEq _  Nothing  (Just _) = False
+    liftEq _  (Just _) Nothing  = False
+    liftEq eq (Just x) (Just y) = eq x y
+    -- this is a redundant pattern match, but GHC can't see that
+    --liftEq _  _        _        = False
+
+instance Ord1 Maybe where
+    liftCompare _    Nothing  Nothing  = EQ
+    liftCompare _    Nothing  (Just _) = LT
+    liftCompare _    (Just _) Nothing  = GT
+    liftCompare comp (Just x) (Just y) = comp x y
+    -- this is a redundant pattern match, but GHC can't see that 
+    --liftCompare _    _        _        = EQ
+
+instance Read1 Maybe where
+    liftReadPrec rp _ =
+        parens (expectP (Ident "Nothing") *> pure nothing)
+        <|>
+        readData (readUnaryWith rp "Just" just)
+
+    liftReadListPrec = liftReadListPrecDefault
+    liftReadList     = liftReadListDefault
+
+instance Show1 Maybe where
+    liftShowsPrec _  _ _ Nothing  = showString "Nothing"
+    liftShowsPrec sp _ d (Just x) = showsUnaryWith sp "Just" d x
+    -- this is a redundant pattern match, but GHC can't see that
+    --liftShowsPrec _  _ _ _        = showString "Nothing" 
