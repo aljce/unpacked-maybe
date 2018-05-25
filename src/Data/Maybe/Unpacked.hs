@@ -38,7 +38,6 @@
 
 {-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE PatternSynonyms    #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UnboxedSums        #-}
 {-# LANGUAGE UnboxedTuples      #-}
 
@@ -55,11 +54,16 @@
     in a familiar way.
 
     Functions are also provided for converting an Unpacked Maybe
-    to the base library's Maybe.
+    to the base library's Maybe, and vice versa.
+
+    WARNING: This library is in alpha, and the internals
+    are likely to change.
 -}
 
 module Data.Maybe.Unpacked
   ( Maybe(Maybe, Just, Nothing)
+  , nothing
+  , just
   , maybe
   , isJust
   , isNothing
@@ -71,6 +75,7 @@ module Data.Maybe.Unpacked
   , mapMaybe
   , fromBaseMaybe
   , toBaseMaybe
+  , readMaybe 
   ) where
 
 --------------------------------------------------------------------------------
@@ -111,10 +116,11 @@ import           Data.Functor.Classes
   , showsUnaryWith
   )
 
-import qualified Data.Maybe as BaseMaybe
+import qualified Data.Maybe          as BaseMaybe
 import           Data.Monoid         (Monoid(mempty,mappend))
 import           Data.Ord            (Ord(compare, (>)), Ordering(EQ, GT, LT))
 import           Data.Semigroup      (Semigroup((<>)))
+import           Data.String         (String)
 import           Data.Traversable    (Traversable(sequenceA, traverse))
 
 import           GHC.Base            (Bool(False,True), Int, build)
@@ -124,44 +130,86 @@ import           GHC.Read            (Read(readPrec), expectP)
 import           GHC.Show            (Show(showsPrec), showString, showParen)
 
 import           Text.Read           (parens, Lexeme(Ident), lexP, (+++))
+import qualified Text.Read           as TextRead
 import           Text.ParserCombinators.ReadPrec
   (prec, step)
 
 --------------------------------------------------------------------------------
 
+-- | The 'Maybe' type encapsulates an optional value.  A value of type
+-- @'Maybe' a@ either contains a value of type @a@ (represented as @'Just' a@),
+-- or it is empty (represented as @'Nothing'@).  Using 'Maybe' is a good way to
+-- deal with errors or exceptional cases without resorting to drastic
+-- measures such as 'error'.
+--
+-- The 'Maybe' type is also a monad.  It is a simple kind of error
+-- monad, where all errors are represented by @'Nothing'@.  A richer
+-- error monad can be built using the 'Data.Either.Either' type.
+--
 data Maybe a = Maybe (# (# #) | a #)
 
--- | The 'Just' pattern synonym mimics the functionality of the 'Just' constructor
---   from 'Data.Maybe'. This is just provided to ensure 'Data.Maybe.Unpacked' is a drop in replacement for 'Data.Maybe'.
+-- | The 'Just' pattern synonym mimics the functionality of the 'Data.Maybe.Just' constructor
+--   from /Data.Maybe/.
 --
 pattern Just :: a -> Maybe a
 pattern Just a = Maybe (# | a #)
 
--- | The 'Nothing' pattern synonym mimics the functionality of the 'Nothing' constructor
---   from 'Data.Maybe'. This is just provided to ensure 'Data.Maybe.Unpacked' is a drop-in replacement for 'Data.Maybe'.
+-- | The 'Nothing' pattern synonym mimics the functionality of the 'Data.Maybe.Nothing' constructor
+--   from /Data.Maybe/.
 -- 
 pattern Nothing :: Maybe a
 pattern Nothing = Maybe (# (# #) | #)
 
 {-# COMPLETE Just, Nothing #-}
 
+-- | This is the same as 'Nothing'.
 nothing :: Maybe a
 nothing = Maybe (# (# #) | #)
 {-# INLINE nothing #-}
 
+-- | This is the same as 'Just'.
 just :: a -> Maybe a
 just x = Maybe (# | x #)
 {-# INLINE just #-}
 
+-- | The 'maybe' function takes a default value, a function, and a 'Maybe'
+-- value.  If the 'Maybe' value is 'Nothing', the function returns the
+-- default value.  Otherwise, it applies the function to the value inside
+-- the 'Just' and returns the result.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> maybe False odd (just 3)
+-- True
+--
+-- >>> maybe False odd nothing
+-- False
+--
+-- Read an integer from a string using 'readMaybe'. If we succeed,
+-- return twice the integer; that is, apply @(*2)@ to it. If instead
+-- we fail to parse an integer, return @0@ by default:
+--
+-- >>> maybe 0 (*2) (readMaybe "5")
+-- 10
+-- >>> maybe 0 (*2) (readMaybe "")
+-- 0
+--
+-- Apply 'show' to a @Maybe Int@. If we have @'just' n@, we want to show
+-- the underlying 'Int' @n@. But if we have 'nothing', we return the
+-- empty string instead of (for example) \"Nothing\":
+--
+-- >>> maybe "" show (just 5)
+-- "5"
+-- >>> maybe "" show nothing
+-- ""
+--
 maybe :: b -> (a -> b) -> Maybe a -> b
 maybe def f (Maybe x) = case x of
   (# (# #) |   #) -> def
   (#       | a #) -> f a
 {-# INLINE maybe #-}
-
-isNothing :: Maybe a -> Bool
-isNothing = maybe True (const False)
-{-# INLINE isNothing #-}
 
 -- | The 'isJust' function returns 'True' if its argument is of the
 -- form @Just _@.
@@ -187,6 +235,29 @@ isNothing = maybe True (const False)
 isJust :: Maybe a -> Bool
 isJust = maybe False (const True)
 {-# INLINE isJust #-}
+
+-- | The 'isNothing' function returns 'True' if its argument is 'nothing'.
+--
+-- ==== __Examples__
+--
+-- Basic usage:
+--
+-- >>> isNothing (just 3)
+-- False
+--
+-- >>> isNothing (just ())
+-- False
+--
+-- >>> isNothing nothing
+-- True
+--
+-- Only the outer constructor is taken into consideration:
+--
+-- >>> isNothing (just nothing)
+-- False
+isNothing :: Maybe a -> Bool
+isNothing = maybe True (const False)
+{-# INLINE isNothing #-}
 
 -- | The 'fromJust' function extracts the element out of a 'just' and
 -- throws an error if its argument is 'nothing'.
@@ -407,6 +478,18 @@ toBaseMaybe :: Maybe a -> BaseMaybe.Maybe a
 toBaseMaybe = maybe BaseMaybe.Nothing BaseMaybe.Just
 {-# INLINE toBaseMaybe #-}
 
+-- | Parse a string using the 'Read' instance.
+-- Succeeds if there is exactly one valid result.
+--
+-- >>> readMaybe "123" :: Maybe Int
+-- Just 123
+--
+-- >>> readMaybe "hello" :: Maybe Int
+-- Nothing
+--
+readMaybe :: Read a => String -> Maybe a
+readMaybe = fromBaseMaybe . TextRead.readMaybe
+
 --------------------------------------------------------------------------------
 
 -- Below here lie only instances, and helpers for instances
@@ -529,16 +612,12 @@ instance Eq1 Maybe where
     liftEq _  Nothing  (Just _) = False
     liftEq _  (Just _) Nothing  = False
     liftEq eq (Just x) (Just y) = eq x y
-    -- this is a redundant pattern match, but GHC can't see that
-    --liftEq _  _        _        = False
 
 instance Ord1 Maybe where
     liftCompare _    Nothing  Nothing  = EQ
     liftCompare _    Nothing  (Just _) = LT
     liftCompare _    (Just _) Nothing  = GT
     liftCompare comp (Just x) (Just y) = comp x y
-    -- this is a redundant pattern match, but GHC can't see that 
-    --liftCompare _    _        _        = EQ
 
 instance Read1 Maybe where
     liftReadPrec rp _ =
@@ -552,5 +631,4 @@ instance Read1 Maybe where
 instance Show1 Maybe where
     liftShowsPrec _  _ _ Nothing  = showString "Nothing"
     liftShowsPrec sp _ d (Just x) = showsUnaryWith sp "Just" d x
-    -- this is a redundant pattern match, but GHC can't see that
-    --liftShowsPrec _  _ _ _        = showString "Nothing" 
+
