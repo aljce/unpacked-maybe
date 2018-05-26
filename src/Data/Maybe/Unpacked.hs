@@ -44,19 +44,19 @@
 --------------------------------------------------------------------------------
 
 {-| This module is intended to be a drop-in replacement
-    for 'Data.Maybe'. To shave off pointer chasing, it
+    for base's 'Data.Maybe'. To shave off pointer chasing, it
     uses @'-XUnboxedSums'@ to represent the @'Maybe'@ type
     as two machine words that are contiguous in memory, without
-    loss of expressiveness that 'Data.Maybe' provides.
+    loss of expressiveness that base's 'Data.Maybe' provides.
 
     This library provides pattern synonyms @'Just'@ and @'Nothing'@
-    that allow users to pattern match on an Unpacked Maybe
+    that allow users to pattern match on an unpacked Maybe
     in a familiar way.
 
-    Functions are also provided for converting an Unpacked Maybe
+    Functions are also provided for converting an unpacked Maybe
     to the base library's Maybe, and vice versa.
 
-    WARNING: This library is in alpha, and the internals
+    This library is in alpha, and the internals
     are likely to change.
 -}
 
@@ -75,7 +75,6 @@ module Data.Maybe.Unpacked
   , mapMaybe
   , fromBaseMaybe
   , toBaseMaybe
-  , readMaybe 
   ) where
 
 --------------------------------------------------------------------------------
@@ -120,7 +119,6 @@ import qualified Data.Maybe          as BaseMaybe
 import           Data.Monoid         (Monoid(mempty,mappend))
 import           Data.Ord            (Ord(compare, (>)), Ordering(EQ, GT, LT))
 import           Data.Semigroup      (Semigroup((<>)))
-import           Data.String         (String)
 import           Data.Traversable    (Traversable(sequenceA, traverse))
 
 import           GHC.Base            (Bool(False,True), Int, build)
@@ -130,9 +128,7 @@ import           GHC.Read            (Read(readPrec), expectP)
 import           GHC.Show            (Show(showsPrec), showString, showParen)
 
 import           Text.Read           (parens, Lexeme(Ident), lexP, (+++))
-import qualified Text.Read           as TextRead
-import           Text.ParserCombinators.ReadPrec
-  (prec, step)
+import           Text.ParserCombinators.ReadPrec (prec, step)
 
 --------------------------------------------------------------------------------
 
@@ -191,9 +187,9 @@ just x = Maybe (# | x #)
 -- return twice the integer; that is, apply @(*2)@ to it. If instead
 -- we fail to parse an integer, return @0@ by default:
 --
--- >>> maybe 0 (*2) (readMaybe "5")
+-- >>> maybe 0 (*2) (fromBaseMaybe $ readMaybe "5")
 -- 10
--- >>> maybe 0 (*2) (readMaybe "")
+-- >>> maybe 0 (*2) (fromBaseMaybe $ readMaybe "")
 -- 0
 --
 -- Apply 'show' to a @Maybe Int@. If we have @'just' n@, we want to show
@@ -440,8 +436,8 @@ mapMaybe f !(a:as) = let bs = mapMaybe f as in maybe bs (: bs) (f a)
 mapMaybeFB :: (b -> r -> r) -> (a -> Maybe b) -> a -> r -> r
 mapMaybeFB cons f x next = maybe next (flip cons next) (f x)
 
--- | The 'fromBaseMaybe' function converts 'Data.Maybe' maybes to
--- 'Data.Maybe.Unpacked' maybes. This function is good for using existing
+-- | The 'fromBaseMaybe' function converts base's 'Data.Maybe.Maybe' to a
+--   'Data.Maybe.Unpacked.Maybe'. This function is good for using existing
 -- functions that return 'Data.Maybe' maybes.
 --
 -- ====  __Examples__
@@ -460,9 +456,11 @@ fromBaseMaybe (BaseMaybe.Just x) = just x
 fromBaseMaybe _                  = nothing
 {-# INLINE fromBaseMaybe #-}
 
--- | The 'toBaseMaybe' function converts "Data.Maybe.Unpacked" maybes to
--- 'Data.Maybe' maybes. This function is provided for testing and convenience
--- but it is not an idiomatic use of this library. It ruins the speed and space gains from
+-- | The 'toBaseMaybe' function converts a 'Maybe' value to a
+--   value of base's 'Data.Maybe.Maybe' type.
+--
+--   This function is provided for testing and convenience
+--   but it is not an idiomatic use of this library. It ruins the speed and space gains from
 -- unpacking the 'Maybe'. I implore you to destruct the 'Maybe' with 'maybe' instead.
 --
 -- ==== __Examples__
@@ -477,18 +475,6 @@ fromBaseMaybe _                  = nothing
 toBaseMaybe :: Maybe a -> BaseMaybe.Maybe a
 toBaseMaybe = maybe BaseMaybe.Nothing BaseMaybe.Just
 {-# INLINE toBaseMaybe #-}
-
--- | Parse a string using the 'Read' instance.
--- Succeeds if there is exactly one valid result.
---
--- >>> readMaybe "123" :: Maybe Int
--- Just 123
---
--- >>> readMaybe "hello" :: Maybe Int
--- Nothing
---
-readMaybe :: Read a => String -> Maybe a
-readMaybe = fromBaseMaybe . TextRead.readMaybe
 
 --------------------------------------------------------------------------------
 
